@@ -8,7 +8,7 @@ import json
 
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:passwd@localhost/db_name'  #Cofigure Password and DB_name
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:passwd@localhost/db_name'  #Configure Password and DB_name
 CORS(app)
 db = SQLAlchemy(app) 
 
