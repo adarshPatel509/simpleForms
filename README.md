@@ -4,7 +4,6 @@
 ##### 1. clone the project repo
 #####  2. cd simpleForms
 #####  3. configure DB details in _server.py_
-#####  4. pip install mysql-connector-python
 #####  5. run backend api _python3 server.py_
 #####  6. cd react-frontend
 #####  7. npm install
