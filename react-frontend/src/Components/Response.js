@@ -46,6 +46,8 @@ class Response extends Component {
         table_name = table_name.split("_");
         table_name.pop();
         table_name = table_name.join(" ").toUpperCase();
+
+
         if (this.state.is_loading) {
             return (
                 <div className="container">
@@ -60,6 +62,16 @@ class Response extends Component {
                 </div>
             );
         }
+        // reframe response_list to create tables
+        let api_res = this.state.response_list;
+        let res_list = [];
+        for (let i=0; i < api_res[0].length; i++) {
+            let temp_list = [];
+            for (let j=0; j < api_res.length; j++) {
+                temp_list.push(api_res[j][i]);
+            }
+            res_list.push(temp_list);
+        }
         return (
             <div className="container">
                 {/* Form title */}
@@ -73,28 +85,24 @@ class Response extends Component {
                         <thead className="thead-dark">
                             <tr>
                                 {this.state.question_list.map((item, i) => {
-                                    if (i != 0) {
                                         return (
                                             <th scope="col">
                                                 {item}
                                             </th>
                                         );
-                                    }
                                 })}
                             </tr>
                         </thead>
                         <tbody>
-                            {this.state.response_list.map((item, i) => {
+                            {res_list.map((item, i) => {
                                 return (
                                     <tr>
                                         {item.map((res, i) => {
-                                            if (i != 0) {
                                                 return (
                                                     <td>
                                                         {res}
                                                     </td>
                                                 );
-                                            }
                                         })}
                                     </tr>
                                 );
