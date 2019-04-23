@@ -1,33 +1,55 @@
 from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
 from flask import request
 from flask import jsonify
 from flask_cors import CORS
-import mysql.connector
 from werkzeug.datastructures import ImmutableMultiDict
 import json
 
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:passwd@localhost/db_name'  #Cofigure Password and DB_name
 CORS(app)
+db = SQLAlchemy(app) 
+
+#DataBase Schema
+class Question(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    form_id = db.Column(db.String(128), nullable=False)
+    q_id = db.Column(db.String(50), nullable=False)
+    q_title = db.Column(db.String(150), nullable=False)
+    q_options = db.Column(db.String(150), nullable=True)
+
+    def __init__(self, form_id, q_id, q_title, q_options):
+        self.form_id = form_id
+        self.q_id = q_id
+        self.q_title = q_title
+        self.q_options = q_options
+
+    def __repr__(self):
+        return '<Question %r>' % self.form_id   
+
+class Response(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    form_id = db.Column(db.String(128), nullable=False)
+    q_id = db.Column(db.String(50), nullable=False)
+    q_response = db.Column(db.String(200), nullable=True)
+
+    def __init__(self, form_id, q_id, q_response):
+        self.form_id = form_id
+        self.q_id = q_id
+        self.q_response = q_response
+
+    def __repr__(self):
+        return '<Response %r>' % self.form_id  
 
 
-#connecting to MySQL database
-try:
-    db = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        passwd="YOUR_DATABASE_PASSWD",
-        auth_plugin='mysql_native_password',
-        database='DATABASE_NAME'
-    )
-    print("\nConnected to database SUCCESSFULLY\n")
-except Exception as e:
-    print("\nERROR in connecting with database:\n", e)
-mycursor = db.cursor()
+#make Models migration
+db.create_all()  
+db.session.commit()
 
 
-
-#api for handeling build_new_form request and creare DB table 
+#api for handeling build_new_form request and crearting DB entry 
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.form:
@@ -35,68 +57,25 @@ def index():
         obj = list(data.to_dict(flat=False).keys())[0]
         req_data = json.loads(obj)
 
-        #sql query for creating tables
-        table_name = req_data['form_title']
-        questions = []
-        init_values = []
-
-        table_query = f"CREATE TABLE {table_name} (id INT AUTO_INCREMENT PRIMARY KEY"
-        question_query = f"INSERT INTO {table_name} ("
-        form_fields = req_data['form_fields']
-
+        questions_list = req_data['form_fields']
+        form_id = req_data['form_title']
         
-        for field in form_fields:
-            questions.append(field['title'])
-            q_type = field['q_type']
-            column_name = field['q_type'] + str(field['q_id'])
-            question_query += f"{column_name},"
+        for q in questions_list:
+            #configure options
+            options = ""
+            if (q["q_type"] == "multiplechoice" or q["q_type"] == "dropdown"):
+                options = ",".join(q["options"])
+            if (q["q_type"] == "range"):
+                options = str(q["min"]) + "," + str(q["max"])   
 
-            if (q_type == "paragraph"):
-                table_query += f", {column_name} VARCHAR(300)"
-            else:
-                table_query += f", {column_name} VARCHAR(128)"
+            q_id = q["q_type"] + str(q["q_id"])
+            q_title = q["title"]
 
-            #initial values of different fields
-            if (q_type == "multiplechoice"):
-                options = field['options']
-                options = ",".join(options)
-                init_values.append(options)
-            elif (q_type == "dropdown"):
-                options = field['options']
-                options = ",".join(options)
-                init_values.append(options)
-            elif (q_type == "range"):
-                min = field['min']
-                max = field['max']
-                init_values.append((",".join([min, max])))
-            else:
-                init_values.append("")    
-           
-        table_query += ")"
+            #add questions of new FROM into DB 
+            new_question =  Question(form_id, q_id, q_title, options)
+            db.session.add(new_question)
+            db.session.commit()
 
-        #create database table
-        mycursor.execute(table_query)
-        db.commit()
-
-        #add questions entry to the table
-        total_question = len(form_fields)
-        question_query = question_query[:-1] + ") VALUES (" + "%s,"*total_question 
-        question_query = question_query[:-1] + ")"
-
-        #sql query to add questions to db table
-        try:
-            mycursor.execute(question_query, tuple(questions))
-            db.commit()
-        except Exception as e:
-            print(e)
-
-        #sql query to add initial values to db table
-        try:
-            mycursor.execute(question_query, tuple(init_values))
-            db.commit()
-        except Exception as e:
-            print(e)    
- 
     return '{"status_code": "200 OK", "message": "Form table created successfully"}'
 
 
@@ -104,85 +83,66 @@ def index():
 #api for sharing form_url and handleing new response
 @app.route("/form/<form_title>", methods=["GET", "POST"])
 def show_form(form_title):
+    #post req to add new Response into DB
     if request.form:
         data = ImmutableMultiDict(request.form)
         obj = list(data.to_dict(flat=False).keys())[0]
         req_data = json.loads(obj)
-        response_data = req_data['response']
 
-        #sql query for inserting new response to db
-        insert_query = f"INSERT INTO {form_title} ("
-        response_list = []
+        form_id = req_data['form_title']
+        response_list = req_data['response']
 
-        for field in response_data:
-            response_list.append(field['response'])
-            insert_query += f"{field['q_type']},"
-
-        total_question = len(response_data)
-        insert_query = insert_query[:-1] + ") VALUES (" + "%s,"*total_question
-        insert_query = insert_query[:-1] + ")"
-
-        #execute insert query
         try:
-            mycursor.execute(insert_query, tuple(response_list))
-            db.commit()
-        except Exception as e:
-            print(e)
-            return '{"status_code": "400 Bad request", "message": "Some unexpected ERROR occured"}'
-    
-        return '{"status_code": "200 OK", "message": "Response added successfully"}'
+            for r in response_list:
+                #add FROM response into DB
+                new_response = Response(form_id, r['q_type'], r['response'])
+                db.session.add(new_response)
+                db.session.commit()
+            return '{"status_code": "200 OK", "message": "Response added successfully"}'
+
+        except Exception as _:
+            return '{"status_code": "500 Internal Server Error", "message": "Unexpected Error Occured"}'  
 
 
-    #if get request made then return form_fields (questions_list)
-    q_list_query = f'SELECT * FROM {form_title} WHERE id=1'
-    q_init_value_query = f'SELECT * FROM {form_title} WHERE id=2'
-    q_type_query = f'SHOW COLUMNS FROM {form_title}'
+    #if get request made then return form_fields
     try:
-        result = []
+        form_id = form_title
+        field_list = Question.query.filter_by(form_id = form_id).all()
 
-        mycursor.execute(q_list_query)
-        questions_list = mycursor.fetchone()
-        db.commit()
+        res_data = []
 
-        mycursor.execute(q_init_value_query)
-        init_values_list = mycursor.fetchone()
-        db.commit()
-        
-        mycursor.execute(q_type_query)
-        i = 1
-        for x in mycursor:
-            if (x[0] != 'id'):
-                result.append({"q_type": x[0], "q_title": questions_list[i], "response": "", "init_val": init_values_list[i]})
-                i +=1
-        db.commit()
+        for q in field_list:
+            res_data.append({"q_type": q.q_id, "q_title": q.q_title, "init_val": q.q_options, "response": ""})
 
-        res = {"status_code": "200 OK", "message": result}
+        res = {"status_code": "200 OK", "message": res_data}
+        if (len(res_data) > 0):
+            return jsonify(res)
+        else:
+            return '{"status_code": "400 Bad request", "message": "No such entry found"}'  
 
-        return jsonify(res)
-    except Exception as e:
-        return '{"status_code": "400 Bad Request", "message": "No such FORM found"}'
+    except Exception as _:
+        return '{"status_code": "500 Internal Server Error", "message": "Unexpected Error Occured"}'  
+
 
 
 #api for getting form_responses
 @app.route("/data/<form_title>", methods=["GET"])
 def get_response(form_title):
-    respose_query = f"SELECT * FROM {form_title} WHERE id>2"
-    q_list_query = f'SELECT * FROM {form_title} WHERE id=1'
 
-    try:
-        mycursor.execute(respose_query)
-        response_list = mycursor.fetchall()
-        db.commit()
-        
-        mycursor.execute(q_list_query)
-        questions_list = mycursor.fetchone()
-        db.commit()
+    form_id = form_title
+    questions = Question.query.filter_by(form_id = form_id).all()
+    q_list = []    
+    res_list = []
 
-    except Exception as e:
-        print(e)  
-        return '{"status_code": "400 Bad request", "message": "No such entry found"}'  
+    for q in questions:
+        q_list.append(q.q_title)
+        ans_list = []
+        responses = Response.query.filter_by(form_id = form_id).filter_by(q_id = q.q_id).all()
+        for r in responses:
+            ans_list.append(r.q_response)
+        res_list.append(ans_list)
 
-    response_data = {"status_code": "200 OK", "q_list": questions_list, "responses": response_list}
+    response_data = {"status_code": "200 OK", "q_list": q_list, "responses": res_list}
 
     return jsonify(response_data)
 
